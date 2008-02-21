@@ -147,7 +147,8 @@ sub login {
     }
     return $app->login_failure() if !$driver;
 
-    my $result = $driver->validate_credentials($app, $cred);
+    $cred->{app} = $app unless exists $cred->{app};
+    my $result = $driver->validate_credentials($cred);
     return $app->login_failure()
       if $result != MT::Auth->SUCCESS()
       && $result != MT::Auth->NEW_LOGIN();
