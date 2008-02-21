@@ -21,6 +21,7 @@ sub init {
     );
     $app->{default_mode} = 'handle';
     $app->{is_admin} = 0;
+    $app->{requires_login} = 1;
     $app->{warning_trace} = 0;
     $app;
 }
@@ -86,43 +87,70 @@ sub handle_HEAD    { 1 }
 sub handle_OPTIONS { 1 }
 sub handle_DELETE  { 1 }
 
-sub error {
-    my $app = shift;
-    my($code, $msg) = @_;
-    return unless ref($app);
-    if ($code && $msg) {
-        $app->response_code($code);
-        $app->response_message($msg);
-    }
-    elsif ($code) {
-        return $app->SUPER::error($code);
-    }
-    return undef;
-}
-
-sub show_error {
-    my $app = shift;
-    my ($err) = @_;
-    $app->response_content_type('text/plain');
-    return $app->translate('Error: [_1]', $err);
-}
-
 sub auth_drivers {
+    #TODO: registry?
     qw( MT::Auth::WSSE );
 }
 
-sub authenticate {
+sub login_failure {
     my $app = shift;
+    my ($code, $phrase) = @_;
+    $code ||= 401;
+    $phrase ||= 'Unauthorized';
+
+    my @auth_headers;
+    for my $driver (&auth_drivers) {
+        eval "require $driver;";
+        next if $@;
+        push @auth_headers, $driver->auth_header;
+    }
+    #TODO: does not work - set_header doesn't accept the same header twice
+    #$app->set_header('WWW-Authenticate', $_) for @auth_headers;
+    $app->set_header('WWW-Authenticate', $auth_headers[0]);
+
+    my $err = $app->errstr || "Authorization required.";
+    if ($app->{is_soap}) {
+        chomp($err = encode_xml($err));
+        my $code = $app->response_code;
+        if ($code >= 400) {
+            $app->response_code(500);
+            $app->response_message($err);
+        }
+        $app->response_content_type('text/xml; charset=' . $app->config->PublishCharset);
+        #TODO: does not work in the current requires_login -> login -> failure sequence
+        return <<FAULT;
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>$code</faultcode>
+      <faultstring>$err</faultstring>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>
+FAULT
+    } else {
+        $app->response_code($code);
+        $app->response_message($phrase);
+        return $app->error($err);
+    }
+}
+
+sub login {
+    my $app = shift;
+
     my ($driver, $cred);
-    DRIVER: for my $try_driver ($app->auth_drivers()) {
+    DRIVER: for my $try_driver (&auth_drivers) {
+        eval "require $try_driver;";
+        next if $@;
         $cred = $try_driver->fetch_credentials({ app => $app });
         $driver = $try_driver, last DRIVER if $cred && %$cred;
     }
-    return if !$driver;
+    return $app->login_failure() if !$driver;
 
-    my $result = $driver->validate_credentials($cred);
-    return if $result != MT::Auth->SUCCESS()
-           && $result != MT::Auth->NEW_LOGIN();
+    my $result = $driver->validate_credentials($app, $cred);
+    return $app->login_failure()
+      if $result != MT::Auth->SUCCESS()
+      && $result != MT::Auth->NEW_LOGIN();
 
     ## update session so the user will be counted as active
     require MT::Session;
@@ -135,14 +163,12 @@ sub authenticate {
     }
     $sess_active->start(time);
     $sess_active->save;
-    return 1;
+    return $app->user;
 }
 
 sub is_authorized {
     my $app = shift;
-    return $app->error(401, 'Unauthorized')
-        if !$app->user;
-    return 1;
+    return $app->user ? 1 : 0;
 }
 
 1;
