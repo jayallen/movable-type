@@ -18,6 +18,11 @@ use MT::Author;
 
 use constant NS_WSSE => 'http://schemas.xmlsoap.org/ws/2002/07/secext';
 
+sub auth_header {
+    my $auth = shift;
+    return 'WSSE profile="UsernameToken"';
+}
+
 sub fetch_credentials {
     my $auth = shift;
     my ($param) = @_;
@@ -44,59 +49,77 @@ sub fetch_credentials {
             $cred{$k} = $v;
         }
     }
-    return $auth->error('UsernameToken WSSE requires ' . $_)
-        if !$cred{$_}
-        for qw( Username PasswordDigest Nonce Created );
+    for ( qw( Username PasswordDigest Nonce Created ) ) {
+        return $auth->error('UsernameToken WSSE requires ' . $_)
+            unless $cred{$_};
+    }
     return { %$param, %cred };
 }
 
 sub validate_credentials {
-    my $app = shift;
-    my ($cred) = @_;
+    my $auth = shift;
+    my ($app, $cred) = @_;
 
-    return $app->error("UsernameToken WSSE requires " . $_)
-        if !$cred->{$_}
-        for qw( Username PasswordDigest Nonce Created );
+    for ( qw( Username PasswordDigest Nonce Created ) ) {
+        return $app->error('UsernameToken WSSE requires ' . $_)
+            unless $cred->{$_};
+    }
 
     require MT::Session;
-    my $nonce_record = MT::Session->load($auth->{Nonce});
+    my $nonce_record = MT::Session->load($cred->{Nonce});
     
     return $app->error("Nonce already used")
-        if ($nonce_record && $nonce_record->id eq $auth->{Nonce});
+        if ($nonce_record && $nonce_record->id eq $cred->{Nonce});
     $nonce_record = new MT::Session();
     $nonce_record->set_values({
-        id => $auth->{Nonce},
+        id => $cred->{Nonce},
         start => time,
         kind => 'AN'
     });
     $nonce_record->save();
 
-    my $enc = $app->config('PublishCharset');
-    my $username = encode_text($auth->{Username},undef,$enc);
+    my $enc = $app->config->PublishCharset;
+    my $username = encode_text($cred->{Username},undef,$enc);
     my $user = MT::Author->load({ name => $username, type => 1 })
         or return $app->error('Invalid login');
     return $app->error('Invalid login')
         unless $user->api_password;
     return $app->error('Invalid login')
         unless $user->is_active;
-    my $created_on_epoch = $app->iso2epoch($auth->{Created});
+    my $created_on_epoch = _iso2epoch($cred->{Created});
     if (abs(time - $created_on_epoch) > $app->config('WSSETimeout')) {
         return $app->error('X-WSSE UsernameToken timed out');
     }
-    $auth->{Nonce} = MIME::Base64::decode_base64($auth->{Nonce});
+    $cred->{Nonce} = MIME::Base64::decode_base64($cred->{Nonce});
     my $expected = Digest::SHA1::sha1_base64(
-         $auth->{Nonce} . $auth->{Created} . $user->api_password);
+         $cred->{Nonce} . $cred->{Created} . $user->api_password);
     # Some base64 implementors do it wrong and don't put the =
     # padding on the end. This should protect us against that without
     # creating any holes.
     $expected =~ s/=*$//;
-    $auth->{PasswordDigest} =~ s/=*$//;
-    #print STDERR "expected $expected and got " . $auth->{PasswordDigest} . "\n";
+    $cred->{PasswordDigest} =~ s/=*$//;
+    #print STDERR "expected $expected and got " . $cred->{PasswordDigest} . "\n";
     return $app->error('X-WSSE PasswordDigest is incorrect')
-        unless $expected eq $auth->{PasswordDigest};
+        unless $expected eq $cred->{PasswordDigest};
 
     $app->user($user);
     return MT::Auth->NEW_LOGIN();  # always new
+}
+
+sub _iso2epoch {
+    my($ts) = @_;
+    return unless $ts =~ /^(\d{4})(?:-?(\d{2})(?:-?(\d\d?)(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}:\d{2}))?)?)?)?/;
+    my($y, $mo, $d, $h, $m, $s, $zone) =
+        ($1, $2 || 1, $3 || 1, $4 || 0, $5 || 0, $6 || 0, $7);
+
+    use Time::Local;
+    my $dt = timegm($s, $m, $h, $d, $mo-1, $y);
+    if ($zone && $zone ne 'Z') {
+        require MT::DateTime;
+        my $tz_secs = MT::DateTime->tz_offset_as_seconds($zone);
+        $dt -= $tz_secs;
+    }
+    $dt;
 }
 
 1;
