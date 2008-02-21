@@ -58,7 +58,8 @@ sub fetch_credentials {
 
 sub validate_credentials {
     my $auth = shift;
-    my ($app, $cred) = @_;
+    my ($cred) = @_;
+    my $app = $cred->{app};
 
     for ( qw( Username PasswordDigest Nonce Created ) ) {
         return $app->error('UsernameToken WSSE requires ' . $_)
