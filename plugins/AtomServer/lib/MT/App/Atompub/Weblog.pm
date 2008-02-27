@@ -70,11 +70,8 @@ sub apply_basename {
 sub handle_request {
     my $app = shift;
 
-    #TODO: ugly.  need to come up with a cleaner way
-    unless ( $app->check_perms ) {
-        bless $app, 'MT::App::API';
-        return $app->login_failure(403, 'Forbidden');
-    }
+    return $app->login_failure(403, 'Forbidden')
+        if !$app->check_perms;
 
     if (my $svc = $app->{param}{svc}) {
         if ($svc eq 'upload') {
