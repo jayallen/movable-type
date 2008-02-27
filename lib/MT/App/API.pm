@@ -21,7 +21,7 @@ sub init {
     );
     $app->{default_mode} = 'handle';
     $app->{is_admin} = 0;
-    $app->{requires_login} = 1;
+    $app->{requires_login} = 0;
     $app->{warning_trace} = 0;
     $app;
 }

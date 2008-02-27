@@ -23,17 +23,8 @@ use constant NS_WSU => 'http://schemas.xmlsoap.org/ws/2002/07/utility';
 
 sub init {
     my $app = shift;
-    $app->{no_read_body} = 1
-        if $app->request_method eq 'POST' || $app->request_method eq 'PUT';
-    $app->SUPER::init(@_) or return $app->error("Initialization failed");
-    $app->request_content
-        if $app->request_method eq 'POST' || $app->request_method eq 'PUT';
-    $app->add_methods(
-        handle => \&handle,
-    );
-    $app->{default_mode} = 'handle';
-    $app->{is_admin} = 0;
-    $app->{warning_trace} = 0;
+    $app->SUPER::init(@_);
+    $app->{requires_login} = 1;
     $app;
 }
 
