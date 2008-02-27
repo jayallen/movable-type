@@ -39,7 +39,8 @@ sub handle {
         }
 
         my $apps = $app->registry(qw( applications api ));
-        if (my $class = $apps->{$subapp}) {
+        my $subapp = $apps->{$subapp};
+        if ($subapp && (my $class = $subapp->{class})) {
             if (ref $class) {
                 # TODO: Dynamically generate some api subclass for a set of
                 # methods specified in registry?
@@ -51,6 +52,9 @@ sub handle {
 
             # Rebless the app into that subclass.
             bless $app, $class;
+
+            # Set the auth handlers here, while we're looking in the registry.
+            $app->auth_drivers($subapp->{auth});
         }
         my $out = $app->handle_request;
         return unless defined $out;
@@ -88,8 +92,9 @@ sub handle_OPTIONS { 1 }
 sub handle_DELETE  { 1 }
 
 sub auth_drivers {
-    #TODO: registry?
-    qw( MT::Auth::WSSE );
+    my $app = shift;
+    ($app->{auth_drivers}) = @_ if @_;
+    return @{ $app->{auth_drivers} || [] };
 }
 
 sub login_failure {
@@ -99,7 +104,7 @@ sub login_failure {
     $phrase ||= 'Unauthorized';
 
     my @auth_headers;
-    for my $driver (&auth_drivers) {
+    for my $driver ($app->auth_drivers) {
         eval "require $driver;";
         next if $@;
         push @auth_headers, $driver->auth_header;
@@ -139,7 +144,7 @@ sub login {
     my $app = shift;
 
     my ($driver, $cred);
-    DRIVER: for my $try_driver (&auth_drivers) {
+    DRIVER: for my $try_driver ($app->auth_drivers) {
         eval "require $try_driver;";
         next if $@;
         $cred = $try_driver->fetch_credentials({ app => $app });
@@ -155,7 +160,7 @@ sub login {
 
     ## update session so the user will be counted as active
     require MT::Session;
-    my $sess_active = MT::Session->load( { kind => 'UA', name => $app->user->id } );
+    my $sess_active = MT::Session->load({ kind => 'UA', name => $app->user->id });
     if (!$sess_active) {
         $sess_active = MT::Session->new;
         $sess_active->id($app->make_magic_token());

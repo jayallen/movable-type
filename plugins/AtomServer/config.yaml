@@ -7,5 +7,11 @@ author_link: http://www.sixapart.com/
 init_app: $Atompub::MT::Atompub::init_app
 applications:
     api:
-        1.0:    MT::App::Atompub::Weblog
-        weblog: MT::App::Atompub::Legacy
+        1.0:
+            class: MT::App::Atompub::Weblog
+            auth:
+                - MT::Auth::WSSE
+        weblog:
+            class: MT::App::Atompub::Legacy
+            auth:
+                - MT::Auth::WSSE
