@@ -49,9 +49,9 @@ sub fetch_credentials {
             $cred{$k} = $v;
         }
     }
-    for ( qw( Username PasswordDigest Nonce Created ) ) {
-        return $auth->error('UsernameToken WSSE requires ' . $_)
-            unless $cred{$_};
+    for my $field (qw( Username PasswordDigest Nonce Created )) {
+        return $auth->error('UsernameToken WSSE requires ' . $field)
+            unless $cred{$field};
     }
     return { %$param, %cred };
 }
@@ -61,9 +61,9 @@ sub validate_credentials {
     my ($cred) = @_;
     my $app = $cred->{app};
 
-    for ( qw( Username PasswordDigest Nonce Created ) ) {
-        return $app->error('UsernameToken WSSE requires ' . $_)
-            unless $cred->{$_};
+    for my $field (qw( Username PasswordDigest Nonce Created )) {
+        return $app->error('UsernameToken WSSE requires ' . $field)
+            unless $cred->{$field};
     }
 
     require MT::Session;
