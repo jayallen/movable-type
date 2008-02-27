@@ -13,7 +13,7 @@ use XML::Atom::Util qw( first textValue );
 use base qw( MT::Auth::MT );
 use MIME::Base64 ();
 use Digest::SHA1 ();
-use MT::Util qw( encode_xml );
+use MT::Util qw( encode_xml iso2ts ts2epoch );
 use MT::Author;
 
 use constant NS_WSSE => 'http://schemas.xmlsoap.org/ws/2002/07/secext';
@@ -87,7 +87,7 @@ sub validate_credentials {
         unless $user->api_password;
     return $app->error('Invalid login')
         unless $user->is_active;
-    my $created_on_epoch = _iso2epoch($cred->{Created});
+    my $created_on_epoch = ts2epoch(undef, iso2ts(undef, $cred->{Created}));
     if (abs(time - $created_on_epoch) > $app->config('WSSETimeout')) {
         return $app->error('X-WSSE UsernameToken timed out');
     }
@@ -105,22 +105,6 @@ sub validate_credentials {
 
     $app->user($user);
     return MT::Auth->NEW_LOGIN();  # always new
-}
-
-sub _iso2epoch {
-    my($ts) = @_;
-    return unless $ts =~ /^(\d{4})(?:-?(\d{2})(?:-?(\d\d?)(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-]\d{2}:\d{2}))?)?)?)?/;
-    my($y, $mo, $d, $h, $m, $s, $zone) =
-        ($1, $2 || 1, $3 || 1, $4 || 0, $5 || 0, $6 || 0, $7);
-
-    use Time::Local;
-    my $dt = timegm($s, $m, $h, $d, $mo-1, $y);
-    if ($zone && $zone ne 'Z') {
-        require MT::DateTime;
-        my $tz_secs = MT::DateTime->tz_offset_as_seconds($zone);
-        $dt -= $tz_secs;
-    }
-    $dt;
 }
 
 1;
