@@ -72,6 +72,30 @@ SOAP
     return $out;
 }
 
+sub show_error {
+    my $app = shift;
+    return $app->SUPER::show_error(@_) if !$app->{is_soap};
+
+    my($err) = @_;
+    chomp($err = encode_xml($err));
+
+    my $code = $app->response_code;
+    if ($code >= 400) {
+        $app->response_code(500);
+        $app->response_message($err);
+    }
+    return <<FAULT;
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>$code</faultcode>
+      <faultstring>$err</faultstring>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>
+FAULT
+}
+
 sub script { $_[0]->{cfg}->AtomScript . '/weblog' }
 
 sub atom_content_type   { 'application/xml' }

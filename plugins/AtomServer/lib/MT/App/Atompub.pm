@@ -51,28 +51,10 @@ sub show_error {
     my $app = shift;
     my($err) = @_;
     chomp($err = encode_xml($err));
-    if ($app->{is_soap}) {
-        my $code = $app->response_code;
-        if ($code >= 400) {
-            $app->response_code(500);
-            $app->response_message($err);
-        }
-        return <<FAULT;
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <soap:Fault>
-      <faultcode>$code</faultcode>
-      <faultstring>$err</faultstring>
-    </soap:Fault>
-  </soap:Body>
-</soap:Envelope>
-FAULT
-    } else {
-        $app->response_content_type('text/xml');
-        return <<ERR;
+    $app->response_content_type('text/xml');
+    return <<ERR;
 <error>$err</error>
 ERR
-    }
 }
 
 sub get_auth_info {
