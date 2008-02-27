@@ -17,7 +17,8 @@ use MT::Blog;
 use MT::Permission;
 
 use constant NS_CATEGORY => 'http://sixapart.com/atom/category#';
-use constant NS_DC => MT::AtomServer::Weblog->NS_DC();
+use constant NS_DC       => MT::App::Atompub::Weblog->NS_DC();
+use constant NS_SOAP     => 'http://schemas.xmlsoap.org/soap/envelope/';
 
 sub login_failure {
     my $app = shift;
@@ -94,6 +95,15 @@ sub show_error {
   </soap:Body>
 </soap:Envelope>
 FAULT
+}
+
+sub atom_body {
+    my $app = shift;
+    return $app->SUPER::atom_body(@_) if !$app->{is_soap};
+
+    my $xml = $app->xml_body;
+    return MT::Atom::Entry->new(Elem => first($xml, NS_SOAP, 'Body'))
+        or $app->error(500, MT::Atom::Entry->errstr);
 }
 
 sub script { $_[0]->{cfg}->AtomScript . '/weblog' }

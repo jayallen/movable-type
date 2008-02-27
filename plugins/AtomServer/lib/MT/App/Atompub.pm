@@ -17,10 +17,6 @@ use MT::Atom;
 use MT::Util qw( encode_xml );
 use MT::Author;
 
-use constant NS_SOAP => 'http://schemas.xmlsoap.org/soap/envelope/';
-use constant NS_WSSE => 'http://schemas.xmlsoap.org/ws/2002/07/secext';
-use constant NS_WSU => 'http://schemas.xmlsoap.org/ws/2002/07/utility';
-
 sub init {
     my $app = shift;
     $app->SUPER::init(@_);
@@ -57,101 +53,6 @@ sub show_error {
 ERR
 }
 
-sub get_auth_info {
-    my $app = shift;
-    my %param;
-    if ($app->{is_soap}) {
-        my $xml = $app->xml_body;
-        my $auth = first($xml, NS_WSSE, 'UsernameToken');
-        $param{Username} = textValue($auth, NS_WSSE, 'Username');
-        $param{PasswordDigest} = textValue($auth, NS_WSSE, 'Password');
-        $param{Nonce} = textValue($auth, NS_WSSE, 'Nonce');
-        $param{Created} = textValue($auth, NS_WSU, 'Created');
-    } else {
-        my $req = $app->get_header('X-WSSE') or return;
-        $req =~ s/^WSSE //;
-        my ($profile);
-        ($profile, $req) = $req =~ /(\S+),?\s+(.*)/;
-        return $app->error(400, "Unsupported WSSE authentication profile") 
-            if $profile !~ /\bUsernameToken\b/i;
-        for my $i (split /,\s*/, $req) {
-            my($k, $v) = split /=/, $i, 2;
-            $v =~ s/^"//;
-            $v =~ s/"$//;
-            $param{$k} = $v;
-        }
-    }
-    \%param;
-}
-
-sub authenticate {
-    my $app = shift;
-    my $auth = $app->get_auth_info
-        or return $app->auth_failure(401, "Unauthorized");
-    for my $f (qw( Username PasswordDigest Nonce Created )) {
-        return $app->auth_failure(400, "X-WSSE requires $f")
-            unless $auth->{$f};
-    }
-    require MT::Session;
-    my $nonce_record = MT::Session->load($auth->{Nonce});
-    
-    if ($nonce_record && $nonce_record->id eq $auth->{Nonce}) {
-        return $app->auth_failure(403, "Nonce already used");
-    }
-    $nonce_record = new MT::Session();
-    $nonce_record->set_values({
-        id => $auth->{Nonce},
-        start => time,
-        kind => 'AN'
-    });
-    $nonce_record->save();
-# xxx Expire sessions on shorter timeout?
-    my $enc = $app->config('PublishCharset');
-    my $username = encode_text($auth->{Username},undef,$enc);
-    my $user = MT::Author->load({ name => $username, type => 1 })
-        or return $app->auth_failure(403, 'Invalid login');
-    return $app->auth_failure(403, 'Invalid login')
-        unless $user->api_password;
-    return $app->auth_failure(403, 'Invalid login')
-        unless $user->is_active;
-    my $created_on_epoch = $app->iso2epoch($auth->{Created});
-    if (abs(time - $created_on_epoch) > $app->config('WSSETimeout')) {
-        return $app->auth_failure(403, 'X-WSSE UsernameToken timed out');
-    }
-    $auth->{Nonce} = MIME::Base64::decode_base64($auth->{Nonce});
-    my $expected = Digest::SHA1::sha1_base64(
-         $auth->{Nonce} . $auth->{Created} . $user->api_password);
-    # Some base64 implementors do it wrong and don't put the =
-    # padding on the end. This should protect us against that without
-    # creating any holes.
-    $expected =~ s/=*$//;
-    $auth->{PasswordDigest} =~ s/=*$//;
-    #print STDERR "expected $expected and got " . $auth->{PasswordDigest} . "\n";
-    return $app->auth_failure(403, 'X-WSSE PasswordDigest is incorrect')
-        unless $expected eq $auth->{PasswordDigest};
-    $app->{user} = $user;
-
-    ## update session so the user will be counted as active
-    require MT::Session;
-    my $sess_active = MT::Session->load( { kind => 'UA', name => $user->id } );
-    if (!$sess_active) {
-        $sess_active = MT::Session->new;
-        $sess_active->id($app->make_magic_token());
-        $sess_active->kind('UA'); # UA == User Activation
-        $sess_active->name($user->id);
-    }
-    $sess_active->start(time);
-    $sess_active->save;
-    return 1;
-}
-
-sub auth_failure {
-    my $app = shift;
-    $app->set_header('WWW-Authenticate', 'WSSE profile="UsernameToken"');
-    $app->error(shift, 'Unauthorized');
-    return $app->show_error(@_);
-}
-
 sub xml_body {
     my $app = shift;
     unless (exists $app->{xml_body}) {
@@ -168,16 +69,8 @@ sub xml_body {
 
 sub atom_body {
     my $app = shift;
-    my $atom;
-    if ($app->{is_soap}) {
-        my $xml = $app->xml_body;
-        $atom = MT::Atom::Entry->new(Elem => first($xml, NS_SOAP, 'Body'))
-            or return $app->error(500, MT::Atom::Entry->errstr);
-    } else {
-        $atom = MT::Atom::Entry->new(Stream => \$app->request_content)
-            or return $app->error(500, MT::Atom::Entry->errstr);
-    }
-    $atom;
+    return MT::Atom::Entry->new(Stream => \$app->request_content)
+        or $app->error(500, MT::Atom::Entry->errstr);
 }
 
 # $target_zone is expected to be a number of hours from GMT

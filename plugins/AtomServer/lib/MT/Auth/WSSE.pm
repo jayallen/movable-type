@@ -17,6 +17,7 @@ use MT::Util qw( encode_xml iso2ts ts2epoch );
 use MT::Author;
 
 use constant NS_WSSE => 'http://schemas.xmlsoap.org/ws/2002/07/secext';
+use constant NS_WSU  => 'http://schemas.xmlsoap.org/ws/2002/07/utility';
 
 sub auth_header {
     my $auth = shift;
@@ -33,7 +34,8 @@ sub fetch_credentials {
         my $token = first($xml, NS_WSSE, 'UsernameToken')
             or return $auth->error('Unsupported WSSE authentication profile');
         $cred{$_} = textValue($token, NS_WSSE, $_)
-            for qw( Username Password Nonce Created );
+            for qw( Username Password Nonce );
+        $cred{Created} = textValue($token, NS_WSU, 'Created');
         $cred{PasswordDigest} = delete $cred{Password};
     } else {
         my $req = $app->get_header('X-WSSE') or return;
