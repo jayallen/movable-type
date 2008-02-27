@@ -114,30 +114,9 @@ sub login_failure {
     $app->set_header('WWW-Authenticate', $auth_headers[0]);
 
     my $err = $app->errstr || "Authorization required.";
-    if ($app->{is_soap}) {
-        chomp($err = encode_xml($err));
-        my $code = $app->response_code;
-        if ($code >= 400) {
-            $app->response_code(500);
-            $app->response_message($err);
-        }
-        $app->response_content_type('text/xml; charset=' . $app->config->PublishCharset);
-        #TODO: does not work in the current requires_login -> login -> failure sequence
-        return <<FAULT;
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <soap:Fault>
-      <faultcode>$code</faultcode>
-      <faultstring>$err</faultstring>
-    </soap:Fault>
-  </soap:Body>
-</soap:Envelope>
-FAULT
-    } else {
-        $app->response_code($code);
-        $app->response_message($phrase);
-        return $app->error($err);
-    }
+    $app->response_code($code);
+    $app->response_message($phrase);
+    return $app->error($err);
 }
 
 sub login {

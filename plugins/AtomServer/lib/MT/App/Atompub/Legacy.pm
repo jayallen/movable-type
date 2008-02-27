@@ -19,6 +19,33 @@ use MT::Permission;
 use constant NS_CATEGORY => 'http://sixapart.com/atom/category#';
 use constant NS_DC => MT::AtomServer::Weblog->NS_DC();
 
+sub login_failure {
+    my $app = shift;
+    my $ret = $app->SUPER::login_failure(@_);
+    return $ret if !$app->{is_soap};
+
+    my $err = $app->errstr;
+    my $code = $app->response_code;
+
+    chomp($err = encode_xml($err));
+    if ($code >= 400) {
+        $app->response_code(500);
+        $app->response_message($err);
+    }
+    $app->response_content_type('text/xml; charset=' . $app->config->PublishCharset);
+    # TODO: does not work in the current requires_login -> login -> failure sequence
+    return <<FAULT;
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <soap:Fault>
+      <faultcode>$code</faultcode>
+      <faultstring>$err</faultstring>
+    </soap:Fault>
+  </soap:Body>
+</soap:Envelope>
+FAULT
+}
+
 sub script { $_[0]->{cfg}->AtomScript . '/weblog' }
 
 sub atom_content_type   { 'application/xml' }
