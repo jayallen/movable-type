@@ -28,48 +28,8 @@ sub init {
     $app;
 }
 
-sub handle {
-    my $app = shift;
-
-    my $out = eval {
-        (my $pi = $app->path_info) =~ s!^/!!;
-        my($subapp, @args) = split /\//, $pi;
-        $app->{param} = {};
-        for my $arg (@args) {
-            my($k, $v) = split /=/, $arg, 2;
-            $app->{param}{$k} = $v;
-        }
-        if (my $action = $app->get_header('SOAPAction')) {
-            $app->{is_soap} = 1;
-            $action =~ s/"//g; # "
-            my($method) = $action =~ m!/([^/]+)$!;
-            $app->request_method($method);
-        }
-        my $apps = $app->config->AtomApp;
-        if (my $class = $apps->{$subapp}) {
-            bless $app, $class;
-        }
-        my $out = $app->handle_request;
-        return unless defined $out;
-        if ($app->{is_soap}) {
-            $out =~ s!^(<\?xml.*?\?>)!!;
-            $out = <<SOAP;
-$1
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-    <soap:Body>$out</soap:Body>
-</soap:Envelope>
-SOAP
-        }
-        return $out;
-    };
-    if (my $e = $@) {
-        $app->error(500, $e);
-        $app->show_error("Internal Error");
-    }
-    return $out;
-}
-
 sub handle_request {
+    # Don't dispatch to handle_METHOD methods.
     1;
 }
 

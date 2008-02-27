@@ -46,6 +46,32 @@ sub login_failure {
 FAULT
 }
 
+sub handle_request {
+    my $app = shift;
+
+    if (my $action = $app->get_header('SOAPAction')) {
+        $app->{is_soap} = 1;
+        $action =~ s/"//g;
+        my ($method) = $action =~ m!/([^/]+)$!;
+        $app->request_method($method);
+    }
+
+    my $out = $app->SUPER::handle_request(@_);
+    return if !defined $out;
+
+    if ($app->{is_soap}) {
+        $out =~ s!^(<\?xml.*?\?>)!!;
+        $out = <<SOAP;
+$1
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+    <soap:Body>$out</soap:Body>
+</soap:Envelope>
+SOAP
+    }
+
+    return $out;
+}
+
 sub script { $_[0]->{cfg}->AtomScript . '/weblog' }
 
 sub atom_content_type   { 'application/xml' }
