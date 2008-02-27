@@ -1,5 +1,5 @@
 
-package MT::AtomServer::Init;
+package MT::Atompub;
 
 sub init_app {
     my ($plugin) = @_;

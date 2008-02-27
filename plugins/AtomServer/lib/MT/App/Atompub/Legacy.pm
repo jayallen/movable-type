@@ -4,10 +4,10 @@
 #
 # $Id: AtomServer.pm 1174 2008-01-08 21:02:50Z bchoate $
 
-package MT::AtomServer::Legacy;
+package MT::App::Atompub::Legacy;
 use strict;
 
-use base qw( MT::AtomServer::Weblog );
+use base qw( MT::App::Atompub::Weblog );
 
 use MT::I18N qw( encode_text );
 use XML::Atom;  # for LIBXML

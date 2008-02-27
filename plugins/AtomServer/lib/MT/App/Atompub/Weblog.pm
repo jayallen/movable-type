@@ -4,13 +4,13 @@
 #
 # $Id: AtomServer.pm 1174 2008-01-08 21:02:50Z bchoate $
 
-package MT::AtomServer::Weblog;
+package MT::App::Atompub::Weblog;
 use strict;
 
 use MT::I18N qw( encode_text );
 use XML::Atom;
 use XML::Atom::Feed;
-use base qw( MT::AtomServer );
+use base qw( MT::App::Atompub );
 use MT::Blog;
 use MT::Entry;
 use MT::Util qw( encode_xml );

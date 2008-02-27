@@ -4,13 +4,13 @@
 #
 # $Id: AtomServer.pm 1174 2008-01-08 21:02:50Z bchoate $
 
-package MT::AtomServer;
+package MT::App::Atompub;
 use strict;
 
 use MT::I18N qw( encode_text );
 use XML::Atom;
 use XML::Atom::Util qw( first textValue );
-use base qw( MT::App );
+use base qw( MT::App::API );
 use MIME::Base64 ();
 use Digest::SHA1 ();
 use MT::Atom;
