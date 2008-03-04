@@ -18,8 +18,8 @@ use MT::Permission;
 use File::Spec;
 use File::Basename;
 
-use constant NS_APP => 'http://www.w3.org/2007/app';
-use constant NS_DC => 'http://purl.org/dc/elements/1.1/';
+use constant NS_APP     => 'http://www.w3.org/2007/app';
+use constant NS_DC      => 'http://purl.org/dc/elements/1.1/';
 use constant NS_TYPEPAD => 'http://sixapart.com/atom/typepad#';
 
 sub script { $_[0]->{cfg}->AtomScript . '/1.0' }
