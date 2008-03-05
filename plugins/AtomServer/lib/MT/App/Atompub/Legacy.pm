@@ -73,19 +73,22 @@ SOAP
     return $out;
 }
 
-sub show_error {
+sub error {
     my $app = shift;
-    return $app->SUPER::show_error(@_) if !$app->{is_soap};
+    return $app->SUPER::error(@_) if !$app->{is_soap};
 
-    my($err) = @_;
-    chomp($err = encode_xml($err));
+    my($err, %extra) = @_;
+    $app->SUPER::error(@_);
 
     my $code = $app->response_code;
     if ($code >= 400) {
         $app->response_code(500);
         $app->response_message($err);
     }
-    return <<FAULT;
+
+    chomp($err = encode_xml($err));
+    $app->response_content_type('text/xml');
+    $app->response_content(<<FAULT);
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <soap:Fault>
@@ -95,6 +98,8 @@ sub show_error {
   </soap:Body>
 </soap:Envelope>
 FAULT
+
+    return;
 }
 
 sub atom_body {
@@ -103,7 +108,7 @@ sub atom_body {
 
     my $xml = $app->xml_body;
     return MT::Atom::Entry->new(Elem => first($xml, NS_SOAP, 'Body'))
-        or $app->error(500, MT::Atom::Entry->errstr);
+        or $app->error(MT::Atom::Entry->errstr);
 }
 
 sub script { $_[0]->{cfg}->AtomScript . '/weblog' }
@@ -129,7 +134,7 @@ sub apply_basename {}
 
 sub get_weblogs {
     my $app = shift;
-    my $user = $app->{user};
+    my $user = $app->user or return $app->error('No authentication', code => 403);
     my $iter = $user->is_superuser
         ? MT::Blog->load_iter()
         : MT::Permission->load_iter({ author_id => $user->id });

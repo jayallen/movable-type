@@ -114,7 +114,7 @@ sub check_perms {
         my $perms = $app->{perms} = MT::Permission->load({
                     author_id => $app->user->id,
                     blog_id => $app->{blog}->id });
-        return $app->error("Permission denied.") unless $perms && $perms->can_create_post;
+        return $app->error("Permission denied", code => 403) unless $perms && $perms->can_create_post;
     }
     1;
 }
@@ -134,7 +134,7 @@ sub publish {
 
 sub get_weblogs {
     my $app = shift;
-    my $user = $app->user or return $app->auth_failure(403, 'No authentication');
+    my $user = $app->user or return $app->error('No authentication', code => 401);
     my $iter = $user->is_superuser
         ? MT::Blog->load_iter()
         : MT::Permission->load_iter({ author_id => $user->id });
@@ -219,7 +219,7 @@ sub get_categories {
 
 sub new_post {
     my $app = shift;
-    my $atom = $app->atom_body or return $app->error(500, "No body!");
+    my $atom = $app->atom_body or return $app->error("No body!", 400);
     my $blog = $app->{blog};
     my $user = $app->user;
     my $perms = $app->{perms};
@@ -230,7 +230,7 @@ sub new_post {
     if (my $label = $atom->get(NS_DC, 'subject')) {
         my $label_enc = encode_text($label,'utf-8',$enc);
         $cat = MT::Category->load({ blog_id => $blog->id, label => $label_enc })
-            or return $app->error(400, "Invalid category '$label'");
+            or return $app->error("Invalid category '$label'", 400);
     }
 
     my $content = $atom->content;
@@ -305,9 +305,9 @@ sub new_post {
     }
 
     MT->run_callbacks('api_pre_save.entry', $app, $entry, $orig_entry)
-        or return $app->error(500, MT->translate("PreSave failed [_1]", MT->errstr));
+        or return $app->error(MT->translate("PreSave failed [_1]", MT->errstr));
 
-    $entry->save or return $app->error(500, $entry->errstr);
+    $entry->save or return $app->error($entry->errstr);
 
     require MT::Log;
     $app->log({
@@ -324,7 +324,7 @@ sub new_post {
         $place->entry_id($entry->id);
         $place->blog_id($blog->id);
         $place->category_id($cat->id);
-        $place->save or return $app->error(500, $place->errstr);
+        $place->save or return $app->error($place->errstr);
     }
 
     MT->run_callbacks('api_post_save.entry', $app, $entry, $orig_entry);
@@ -348,10 +348,10 @@ sub edit_post {
     my $blog = $app->{blog};
     my $enc = $app->config('PublishCharset');
     my $entry_id = $app->{param}{entry_id}
-        or return $app->error(400, "No entry_id");
+        or return $app->error("No entry_id", code => 400);
     my $entry = MT::Entry->load($entry_id)
-        or return $app->error(400, "Invalid entry_id");
-    return $app->error(403, "Access denied")
+        or return $app->error("Invalid entry_id", code => 400);
+    return $app->error("Permission denied", code => 403)
         unless $app->{perms}->can_edit_entry($entry, $app->user);
     my $orig_entry = $entry->clone;
     $entry->title(encode_text($atom->title,'utf-8',$enc));
@@ -373,9 +373,9 @@ sub edit_post {
     $entry->discover_tb_from_entry();
 
     MT->run_callbacks('api_pre_save.entry', $app, $entry, $orig_entry)
-        or return $app->error(500, MT->translate("PreSave failed [_1]", MT->errstr));
+        or return $app->error(MT->translate("PreSave failed [_1]", MT->errstr));
 
-    $entry->save or return $app->error(500, "Entry not saved");
+    $entry->save or return $app->error("Entry not saved");
 
     require MT::Log;
     $app->log({
@@ -389,7 +389,7 @@ sub edit_post {
     MT->run_callbacks('api_post_save.entry', $app, $entry, $orig_entry);
 
     if ($entry->status == MT::Entry::RELEASE()) {
-        $app->publish($entry) or return $app->error(500, "Entry not published");
+        $app->publish($entry) or return $app->error("Entry not published");
     }
     $app->response_code(200);
     $app->response_content_type($app->atom_content_type);
@@ -430,10 +430,10 @@ sub get_post {
     my $app = shift;
     my $blog = $app->{blog};
     my $entry_id = $app->{param}{entry_id}
-        or return $app->error(400, "No entry_id");
+        or return $app->error("No entry_id", code => 400);
     my $entry = MT::Entry->load($entry_id)
-        or return $app->error(400, "Invalid entry_id");
-    return $app->error(403, "Access denied")
+        or return $app->error("Invalid entry_id", code => 400);
+    return $app->error("Permission denied", code => 403)
         unless $app->{perms}->can_edit_entry($entry, $app->user);
     $app->response_content_type($app->atom_content_type);
     my $atom = $app->new_with_entry($entry);
@@ -448,14 +448,14 @@ sub delete_post {
     my $app = shift;
     my $blog = $app->{blog};
     my $entry_id = $app->{param}{entry_id}
-        or return $app->error(400, "No entry_id");
+        or return $app->error("No entry_id", code => 400);
     my $entry = MT::Entry->load($entry_id)
-        or return $app->error(400, "Invalid entry_id");
-    return $app->error(403, "Access denied")
+        or return $app->error("Invalid entry_id", code => 400);
+    return $app->error("Permission denied", code => 403)
         unless $app->{perms}->can_edit_entry($entry, $app->user);
     $entry->remove
-        or return $app->error(500, $entry->errstr);
-    $app->publish($entry, 1) or return $app->error(500, $app->errstr);
+        or return $app->error($entry->errstr);
+    $app->publish($entry, 1) or return $app->error($app->errstr);
     '';
 }
 
@@ -477,13 +477,13 @@ sub _upload_to_asset {
         'audio/ogg-vorbis'   => '.ogg',
     );
 
-    return $app->error(403, "Access denied") unless $app->{perms}->can_upload;
+    return $app->error("Permission denied", code => 403) unless $app->{perms}->can_upload;
     my $content = $atom->content;
     my $type = $content->type
-        or return $app->error(400, "content \@type is required");
-    my $fname = $atom->title or return $app->error(400, "title is required");
+        or return $app->error("content \@type is required", code => 400);
+    my $fname = $atom->title or return $app->error("title is required", code => 400);
     $fname = basename($fname);
-    return $app->error(400, "Invalid or empty filename")
+    return $app->error("Invalid or empty filename", code => 400)
         if $fname =~ m!/|\.\.|\0|\|!;
 
     my $local_relative = File::Spec->catfile('%r', $fname);
@@ -501,10 +501,10 @@ sub _upload_to_asset {
     $local = $path . $base . $ext;
     my $data = $content->body;
     defined(my $bytes = $fmgr->put_data($data, $local, 'upload'))
-        or return $app->error(500, "Error writing uploaded file");
+        or return $app->error("Error writing uploaded file: " . $fmgr->errstr);
 
     eval { require Image::Size; };
-    return $app->error(500, MT->translate("Perl module Image::Size is required to determine width and height of uploaded images.")) if $@;
+    return $app->error(MT->translate("Perl module Image::Size is required to determine width and height of uploaded images.")) if $@;
     my ( $w, $h, $id ) = Image::Size::imgsize($local);
 
     require MT::Asset;

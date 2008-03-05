@@ -17,9 +17,8 @@ use MT::Atom;
 use MT::Util qw( encode_xml );
 use MT::Author;
 
-sub init {
+sub post_init {
     my $app = shift;
-    $app->SUPER::init(@_);
     $app->{requires_login} = 1;
     $app;
 }
@@ -27,30 +26,6 @@ sub init {
 sub handle_request {
     # Don't dispatch to handle_METHOD methods.
     1;
-}
-
-sub error {
-    my $app = shift;
-    my($code, $msg) = @_;
-    return unless ref($app);
-    if ($code && $msg) {
-        $app->response_code($code);
-        $app->response_message($msg);
-    }
-    elsif ($code) {
-        return $app->SUPER::error($code);
-    }
-    return undef;
-}
-
-sub show_error {
-    my $app = shift;
-    my($err) = @_;
-    chomp($err = encode_xml($err));
-    $app->response_content_type('text/xml');
-    return <<ERR;
-<error>$err</error>
-ERR
 }
 
 sub xml_body {
