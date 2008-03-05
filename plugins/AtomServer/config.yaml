@@ -4,7 +4,6 @@ key:  Atompub
 description: Provides Atompub services for editing your blogs with remote services and software clients.
 author_name: Six Apart, Ltd.
 author_link: http://www.sixapart.com/
-init_app: $Atompub::MT::Atompub::init_app
 applications:
     api:
         1.0:
