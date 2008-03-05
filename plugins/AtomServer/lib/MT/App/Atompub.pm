@@ -20,12 +20,12 @@ use MT::Author;
 sub post_init {
     my $app = shift;
     $app->{requires_login} = 1;
-    $app->response_content_type('text/xml');
+    $app->{xml_errors} = 1;
     $app;
 }
 
 sub handle_request {
-    # Don't dispatch to handle_METHOD methods.
+    # Let subclasses decide what to do.
     1;
 }
 
