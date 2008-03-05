@@ -9,6 +9,8 @@ use strict;
 
 use base qw( MT::App );
 
+use MT::Util qw( encode_xml );
+
 sub init {
     my $app = shift;
     $app->{no_read_body} = 1
@@ -24,6 +26,7 @@ sub init {
     $app->{is_admin} = 0;
     $app->{requires_login} = 0;
     $app->{warning_trace} = 0;
+    $app->{xml_errors} = 0;
 
     $app->_bless_into_subclass();
     $app->post_init();
@@ -100,6 +103,7 @@ sub error {
     if (ref $app) {
         my $code = $extra{code} || (defined $msg ? 500 : 200);
         $app->response_code($code);
+        $app->set_auth_headers() if $code == 401;
 
         my $status_msg = $extra{status};
         if (!$status_msg) {
@@ -112,7 +116,7 @@ sub error {
             $app->response_content_type(undef);
             $app->response_content(undef);
         }
-        elsif ($extra{xml}) {
+        elsif ($app->{xml_errors}) {
             chomp($msg = encode_xml($msg));
             $app->response_content_type('text/xml');
             $app->response_content("<error>$msg</error>");
@@ -126,11 +130,10 @@ sub error {
     return $app->SUPER::error(@_);
 }
 
-sub login_failure {
+sub show_error { $_[0]->response_content }
+
+sub set_auth_headers {
     my $app = shift;
-    my ($code, $phrase) = @_;
-    $code ||= 401;
-    $phrase ||= 'Unauthorized';
 
     my @auth_headers;
     for my $driver ($app->auth_drivers) {
@@ -141,9 +144,6 @@ sub login_failure {
     #TODO: does not work - set_header doesn't accept the same header twice
     #$app->set_header('WWW-Authenticate', $_) for @auth_headers;
     $app->set_header('WWW-Authenticate', $auth_headers[0]);
-
-    my $err = $app->errstr || "Authorization required.";
-    return $app->error($err, code => $code, status => $phrase);
 }
 
 sub login {
@@ -156,11 +156,12 @@ sub login {
         $cred = $try_driver->fetch_credentials({ app => $app });
         $driver = $try_driver, last DRIVER if $cred && %$cred;
     }
-    return $app->login_failure() if !$driver;
+    die $app->error('No authentication available', code => 500)
+        if !$driver;  # aggressively quit the request
 
     $cred->{app} = $app unless exists $cred->{app};
     my $result = $driver->validate_credentials($cred) || MT::Auth->UNKNOWN();
-    return $app->error($driver->errstr)
+    die $app->error($driver->errstr, code => 401)  # aggressively quit the request
       if $result != MT::Auth->SUCCESS()
       && $result != MT::Auth->NEW_LOGIN();
 
