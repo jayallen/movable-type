@@ -1,0 +1,85 @@
+#!/usr/bin/perl -w
+
+use lib '../../extlib';
+use lib '../../lib';
+
+package MT::Cmd::WSSE;
+use strict;
+
+use MT;
+use MT::Author;
+
+use MIME::Base64 ();
+use Digest::SHA1 ();
+use MT::I18N qw( encode_text );
+use MT::Util qw( encode_xml iso2ts ts2epoch );
+
+use Getopt::Long;
+
+my $cred = {};
+my $ok = GetOptions(
+    'username=s' => \$cred->{Username},
+    'nonce=s'    => \$cred->{Nonce},
+    'digest=s'   => \$cred->{PasswordDigest},
+    'password=s' => \$cred->{PasswordDigest},
+    'created=s'  => \$cred->{Created},
+    'time=s'     => \$cred->{Created},
+);
+
+die "Usage: $0 -u username -n nonce -d digest -c created\n"
+    if !$ok || !$cred->{Username} || !$cred->{Nonce} || !$cred->{PasswordDigest} || !$cred->{Created};
+
+print <<"OPTS";
+
+Username: $cred->{Username}
+Nonce:    $cred->{Nonce}
+Digest:   $cred->{PasswordDigest}
+Created:  $cred->{Created}
+
+OPTS
+
+my $mt = MT->new;
+
+# Check author
+my $enc = MT->config->PublishCharset;
+my $username = encode_text($cred->{Username},undef,$enc);
+my $user = MT::Author->load({ name => $username, type => 1 })
+    or die "No such user $username\n";
+die "User $username has no API password\n"
+    unless $user->api_password;
+die "User $username is a deactivated account\n"
+    unless $user->is_active;
+
+# Check timestamp
+my $created_on_epoch = ts2epoch(undef, iso2ts(undef, $cred->{Created}));
+my $now = time;
+my $timeout = MT->config('WSSETimeout');
+if (abs($now - $created_on_epoch) > $timeout) {
+    print "Timestamp is " . ($now - $created_on_epoch) . " seconds ago, more than the allowed $timeout\n";
+}
+else {
+    print "Timestamp is " . ($now - $created_on_epoch) . " seconds ago, within the allowed $timeout\n";
+}
+
+my $nonce_dec = MIME::Base64::decode_base64($cred->{Nonce});
+my %expected = (
+    regular         => Digest::SHA1::sha1_base64($nonce_dec     . $cred->{Created} . $user->api_password),
+    'encoded nonce' => Digest::SHA1::sha1_base64($cred->{Nonce} . $cred->{Created} . $user->api_password),
+);
+
+my $given = $cred->{PasswordDigest};
+
+my $matched;
+EXPECTED: while (my ($which, $expected) = each %expected) {
+    if ($given =~ m{ \A \Q$expected\E (=*) \z }xms) {
+        print "Digest matches $which expected digest";
+        print " when ignoring trailing =s" if $1;
+        print "\n";
+        $matched = 1;
+        last EXPECTED;
+    }
+}
+
+die join(qq{\n  }, "Digest matched no expected digest:", map { join q{: }, $_, $expected{$_} } keys %expected) . "\n"
+    if !$matched;
+
