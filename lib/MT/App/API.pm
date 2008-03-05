@@ -113,8 +113,7 @@ sub error {
         $app->response_message($status_msg);
 
         if (!defined $msg) {
-            $app->response_content_type(undef);
-            $app->response_content(undef);
+            # do nothing
         }
         elsif ($app->{xml_errors}) {
             chomp($msg = encode_xml($msg));
