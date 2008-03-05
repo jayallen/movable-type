@@ -70,7 +70,7 @@ sub apply_basename {
 sub handle_request {
     my $app = shift;
 
-    return $app->login_failure(403, 'Forbidden')
+    return $app->error('Permission denied', code => 401)
         if !$app->check_perms;
 
     if (my $svc = $app->{param}{svc}) {
