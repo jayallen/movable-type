@@ -16,6 +16,7 @@ sub init {
     $app->SUPER::init(@_) or return $app->error("Initialization failed");
     $app->request_content
         if $app->request_method eq 'POST' || $app->request_method eq 'PUT';
+
     $app->add_methods(
         handle => \&handle,
     );
@@ -23,49 +24,43 @@ sub init {
     $app->{is_admin} = 0;
     $app->{requires_login} = 0;
     $app->{warning_trace} = 0;
+
+    $app->_bless_into_subclass();
+    $app->post_init();
     $app;
 }
 
-sub handle {
+sub post_init { 1 }
+
+sub _bless_into_subclass {
     my $app = shift;
 
-    my $out = eval {
-        (my $pi = $app->path_info) =~ s!^/!!;
-        my($subapp, @args) = split /\//, $pi;
-        $app->{param} = {};
-        for my $arg (@args) {
-            my($k, $v) = split /=/, $arg, 2;
-            $app->{param}{$k} = $v;
-        }
-
-        my $apps = $app->registry(qw( applications api ));
-        my $subapp = $apps->{$subapp};
-        if ($subapp && (my $class = $subapp->{class})) {
-            if (ref $class) {
-                # TODO: Dynamically generate some api subclass for a set of
-                # methods specified in registry?
-                die "Partially specified endpoints not yet supported\n";
-            }
-            else {
-                eval "require $class" or die $@;
-            }
-
-            # Rebless the app into that subclass.
-            bless $app, $class;
-
-            # Set the auth handlers here, while we're looking in the registry.
-            $app->auth_drivers($subapp->{auth});
-        }
-        my $out = $app->handle_request;
-        return unless defined $out;
-
-        return $out;
-    };
-    if ((my $e = $@) || !defined $out) {
-        $app->error(500, "Internal Error");
-        return $app->show_error($e);
+    (my $pi = $app->path_info) =~ s!^/!!;
+    my($subapp_name, @args) = split /\//, $pi;
+    $app->{param} = {};
+    for my $arg (@args) {
+        my($k, $v) = split /=/, $arg, 2;
+        $app->{param}{$k} = $v;
     }
-    return $out;
+
+    my $apps = $app->registry(qw( applications api ));
+    my $subapp = $apps->{$subapp_name};
+    return if !$subapp;
+    my $class = $subapp->{class};
+    return if !$class;
+
+    if (ref $class) {
+        # TODO: Dynamically generate some api subclass for a set of
+        # methods specified in registry?
+        die "Partially specified endpoints not yet supported\n";
+    }
+
+    eval "require $class" or die $@;
+
+    # Set the auth handlers here, while we're looking in the registry.
+    $app->auth_drivers($subapp->{auth});
+
+    bless $app, $class;
 }
 
 sub handle_request {
@@ -74,9 +69,8 @@ sub handle_request {
 
     my @methods = $app->supported_methods();
     if (!grep { $_ eq $method } @methods) {
-        $app->error(405, 'Method Not Allowed');
         $app->set_header( Allow => join q{, }, @methods );
-        return $app->show_error('Method not supported on this resource');
+        return $app->error('Method not supported on this resource', code => 405);
     }
 
     $method = "handle_$method";
@@ -97,6 +91,35 @@ sub auth_drivers {
     return @{ $app->{auth_drivers} || [] };
 }
 
+sub error {
+    my $app = shift;
+    my ($msg, %extra) = @_;
+
+    if (ref $app) {
+        my $code = $extra{code} || 500;
+        $app->response_code($code);
+
+        my $status_msg = $extra{status};
+        if (!$status_msg) {
+            require HTTP::Status;
+            $status_msg = HTTP::Status::status_message($code);
+        }
+        $app->response_message($status_msg);
+
+        if ($app->response_content_type() =~ m{ \b xml \z }xms) {
+            chomp($msg = encode_xml($msg));
+            $app->response_content_type('text/xml');
+            $app->response_content("<error>$msg</error>");
+        }
+        else {
+            $app->response_content_type('text/plain');
+            $app->response_content($msg);
+        }
+    }
+
+    return $app->SUPER::error(@_);
+}
+
 sub login_failure {
     my $app = shift;
     my ($code, $phrase) = @_;
@@ -114,9 +137,7 @@ sub login_failure {
     $app->set_header('WWW-Authenticate', $auth_headers[0]);
 
     my $err = $app->errstr || "Authorization required.";
-    $app->response_code($code);
-    $app->response_message($phrase);
-    return $app->error($err);
+    return $app->error($err, code => $code, status => $phrase);
 }
 
 sub login {
