@@ -156,8 +156,8 @@ sub login {
         $cred = $try_driver->fetch_credentials({ app => $app });
         $driver = $try_driver, last DRIVER if $cred && %$cred;
     }
-    die $app->error('No authentication available', code => 500)
-        if !$driver;  # aggressively quit the request
+    die $app->error('Authentication required', code => 401)  # aggressively quit the request
+        if !$driver;
 
     $cred->{app} = $app unless exists $cred->{app};
     my $result = $driver->validate_credentials($cred) || MT::Auth->UNKNOWN();
