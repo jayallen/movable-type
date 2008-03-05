@@ -64,14 +64,14 @@ sub validate_credentials {
     my $app = $cred->{app};
 
     for my $field (qw( Username PasswordDigest Nonce Created )) {
-        return $app->error('UsernameToken WSSE requires ' . $field)
+        return $auth->error('UsernameToken WSSE requires ' . $field)
             unless $cred->{$field};
     }
 
     require MT::Session;
     my $nonce_record = MT::Session->load($cred->{Nonce});
     
-    return $app->error("Nonce already used")
+    return $auth->error("Nonce already used")
         if ($nonce_record && $nonce_record->id eq $cred->{Nonce});
     $nonce_record = new MT::Session();
     $nonce_record->set_values({
@@ -84,26 +84,38 @@ sub validate_credentials {
     my $enc = $app->config->PublishCharset;
     my $username = encode_text($cred->{Username},undef,$enc);
     my $user = MT::Author->load({ name => $username, type => 1 })
-        or return $app->error('Invalid login');
-    return $app->error('Invalid login')
+        or return $auth->error('Invalid login');
+    return $auth->error('Invalid login')
         unless $user->api_password;
-    return $app->error('Invalid login')
+    return $auth->error('Invalid login')
         unless $user->is_active;
     my $created_on_epoch = ts2epoch(undef, iso2ts(undef, $cred->{Created}));
     if (abs(time - $created_on_epoch) > $app->config('WSSETimeout')) {
-        return $app->error('X-WSSE UsernameToken timed out');
+        return $auth->error('X-WSSE UsernameToken timed out');
     }
-    $cred->{Nonce} = MIME::Base64::decode_base64($cred->{Nonce});
-    my $expected = Digest::SHA1::sha1_base64(
-         $cred->{Nonce} . $cred->{Created} . $user->api_password);
-    # Some base64 implementors do it wrong and don't put the =
-    # padding on the end. This should protect us against that without
-    # creating any holes.
-    $expected =~ s/=*$//;
+
+    # sha1_base64 doesn't put the = padding on the end, so ignore it.
     $cred->{PasswordDigest} =~ s/=*$//;
-    #print STDERR "expected $expected and got " . $cred->{PasswordDigest} . "\n";
-    return $app->error('X-WSSE PasswordDigest is incorrect')
-        unless $expected eq $cred->{PasswordDigest};
+    my $nonce = MIME::Base64::decode_base64($cred->{Nonce});
+
+    my $expected = Digest::SHA1::sha1_base64(
+        $nonce . $cred->{Created} . $user->api_password);
+    $expected =~ s/=*$//;
+
+    if ($expected ne $cred->{PasswordDigest}) {
+        # Some services calculate the digest with the encoded nonce, so some
+        # clients do too, so try it again without decoding.
+        $nonce = $cred->{Nonce};
+
+        $expected = Digest::SHA1::sha1_base64(
+            $nonce . $cred->{Created} . $user->api_password);
+        $expected =~ s/=*$//;
+    }
+
+    if ($expected ne $cred->{PasswordDigest}) {
+        $auth->error('X-WSSE PasswordDigest is incorrect');
+        return MT::Auth->INVALID_PASSWORD();
+    }
 
     $app->user($user);
     return MT::Auth->NEW_LOGIN();  # always new
