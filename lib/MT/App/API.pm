@@ -63,6 +63,8 @@ sub _bless_into_subclass {
     bless $app, $class;
 }
 
+sub handle { shift->handle_request() }
+
 sub handle_request {
     my $app = shift;
     my $method = uc $app->request_method;
@@ -96,7 +98,7 @@ sub error {
     my ($msg, %extra) = @_;
 
     if (ref $app) {
-        my $code = $extra{code} || 500;
+        my $code = $extra{code} || (defined $msg ? 500 : 200);
         $app->response_code($code);
 
         my $status_msg = $extra{status};
@@ -106,7 +108,11 @@ sub error {
         }
         $app->response_message($status_msg);
 
-        if ($app->response_content_type() =~ m{ \b xml \z }xms) {
+        if (!defined $msg) {
+            $app->response_content_type(undef);
+            $app->response_content(undef);
+        }
+        elsif ($extra{xml}) {
             chomp($msg = encode_xml($msg));
             $app->response_content_type('text/xml');
             $app->response_content("<error>$msg</error>");
@@ -153,8 +159,8 @@ sub login {
     return $app->login_failure() if !$driver;
 
     $cred->{app} = $app unless exists $cred->{app};
-    my $result = $driver->validate_credentials($cred);
-    return $app->login_failure()
+    my $result = $driver->validate_credentials($cred) || MT::Auth->UNKNOWN();
+    return $app->error($driver->errstr)
       if $result != MT::Auth->SUCCESS()
       && $result != MT::Auth->NEW_LOGIN();
 
