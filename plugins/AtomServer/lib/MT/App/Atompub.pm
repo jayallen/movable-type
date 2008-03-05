@@ -20,6 +20,7 @@ use MT::Author;
 sub post_init {
     my $app = shift;
     $app->{requires_login} = 1;
+    $app->response_content_type('text/xml');
     $app;
 }
 
