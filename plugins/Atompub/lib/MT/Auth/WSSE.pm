@@ -89,8 +89,17 @@ sub validate_credentials {
         unless $user->api_password;
     return $auth->error('Invalid login')
         unless $user->is_active;
-    my $created_on_epoch = ts2epoch(undef, iso2ts(undef, $cred->{Created}));
-    if (abs(time - $created_on_epoch) > $app->config('WSSETimeout')) {
+
+    # MT::Util::iso2ts tries to fix DST offsets, so don't use it.
+    return $auth->error('Invalid timestamp')
+        if $cred->{Created} !~ /^(\d{4})(?:-?(\d{2})(?:-?(\d\d?)(?:T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})?)?)?)?/;
+    my ($y, $mo, $d, $h, $m, $s, $offset)
+        = ($1, $2 || 1, $3 || 1, $4 || 0, $5 || 0, $6 || 0, $7);
+    require Time::Local;
+    my $created_on_epoch = Time::Local::timegm($s, $m, $h, $d, $mo-1, $y);
+    my $time_diff = time - $created_on_epoch;
+
+    if (abs($time_diff) > $app->config('WSSETimeout')) {
         return $auth->error('X-WSSE UsernameToken timed out');
     }
 
