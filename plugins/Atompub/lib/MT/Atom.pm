@@ -36,9 +36,13 @@ sub new_with_entry {
     # Old Atom API gets application/xhtml+xml for compatibility -- but why
     # do we say it's that when all we're guaranteed is it's an opaque blob
     # of text? So use 'html' for new RFC compatible output.
-    $atom->content->type($rfc_compat ? 'html' : 'application/xhtml+xml');
+    # XML::Atom::Content intelligently determines content-type for rfc compat.
+    unless ( $rfc_compat ) {
+        $atom->content->type('application/xhtml+xml');
+    }
 
-    my $mt_author = MT::Author->load($entry->author_id);
+    my $mt_author = MT::Author->load($entry->author_id)
+        or return undef;
     my $atom_author = new XML::Atom::Person(%param);
     $atom_author->name(encode_text($mt_author->nickname, undef, 'utf-8'));
     $atom_author->email($mt_author->email) if $mt_author->email;
@@ -52,12 +56,29 @@ sub new_with_entry {
         $atom->add_category($atom_cat);
     }
 
-    my $blog = MT::Blog->load($entry->blog_id);
+    my $blog = MT::Blog->load($entry->blog_id)
+        or return undef;
     my $co = _create_issued($entry->authored_on, $blog);
     $atom->issued($co);
+    my $upd = $entry->modified_on;
+    if ( $upd ) {
+        $atom->updated( _create_issued( $upd, $blog ) );
+    }
+    else {
+        $atom->updated( $co );
+    }
     $atom->add_link({ rel => 'alternate', type => 'text/html',
                       href => $entry->permalink });
     my ($host) = $blog->site_url =~ m!^https?://([^/:]+)(:\d+)?/!;
+
+    unless ( $entry->atom_id ) {
+        # atom_id is not there - probably because
+        # the entry is in HOLD state
+        $entry->atom_id($entry->make_atom_id());
+        # call update directly because MT::Entry::save
+        # is overkill for the purpose.
+        $entry->update if $entry->atom_id();
+    }
 
     $atom->id($entry->atom_id);
     #$atom->draft('true') if $entry->status != MT::Entry::RELEASE();
@@ -71,7 +92,8 @@ sub new_with_asset {
     my $atom = $class->new(%param); 
     $atom->title($asset->label); 
     $atom->summary($asset->description);
-    my $blog = MT::Blog->load($asset->blog_id);
+    my $blog = MT::Blog->load($asset->blog_id)
+        or return undef;
     $atom->issued(_create_issued($asset->created_on, $blog)); 
     $atom->add_link({ rel => 'alternate', type => $asset->mime_type, 
                       href => $asset->url, title => $asset->label }); 
@@ -79,6 +101,51 @@ sub new_with_asset {
     $atom->id('tag:' . $host . ':asset-' . $asset->id);
     return $atom; 
 } 
+
+sub new_with_comment {
+    my $class = shift;
+    my ( $comment, %param ) = @_;
+    my $rfc_compat = $param{Version} && $param{Version} eq '1';
+
+    my $entry = $comment->entry;
+    return unless $entry;
+    my $blog = $comment->blog;
+    return unless $blog;
+
+    my $atom = $class->new(%param);
+    $atom->title(encode_text($entry->title, undef, 'utf-8'));
+    $atom->content(encode_text($comment->text, undef, 'utf-8'));
+    # Old Atom API gets application/xhtml+xml for compatibility -- but why
+    # do we say it's that when all we're guaranteed is it's an opaque blob
+    # of text? So use 'html' for new RFC compatible output.
+    # XML::Atom::Content intelligently determines content-type for rfc compat.
+    unless ( $rfc_compat ) {
+        $atom->content->type('application/xhtml+xml');
+    }
+
+    my $atom_author = new XML::Atom::Person(%param);
+    $atom_author->name(encode_text($comment->author, undef, 'utf-8'));
+    $atom_author->email($comment->email) if $comment->email;
+    my $author_url_field = $rfc_compat ? 'uri' : 'url';
+    $atom_author->$author_url_field($comment->url) if $comment->url;
+    $atom->author($atom_author);
+
+    my $co = _create_issued($comment->created_on, $blog);
+    $atom->issued($co);
+    my $upd = $comment->modified_on;
+    if ( $upd ) {
+        $atom->updated( _create_issued( $upd, $blog ) );
+    }
+    else {
+        $atom->updated( $co );
+    }
+    $atom->add_link({ rel => 'alternate', type => 'text/html',
+                      href => $entry->archive_url . '#comment-' . $comment->id });
+    my ($host) = $blog->site_url =~ m!^https?://([^/:]+)(:\d+)?/!;
+
+    $atom->id($entry->atom_id . '/' . $comment->id);
+    $atom;
+}
 
 1;
 __END__

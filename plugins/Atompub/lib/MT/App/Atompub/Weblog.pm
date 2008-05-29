@@ -13,14 +13,14 @@ use XML::Atom::Feed;
 use base qw( MT::App::Atompub );
 use MT::Blog;
 use MT::Entry;
-use MT::Util qw( encode_xml );
+use MT::Util qw( encode_xml format_ts );
 use MT::Permission;
 use File::Spec;
 use File::Basename;
 
-use constant NS_APP     => 'http://www.w3.org/2007/app';
-use constant NS_DC      => 'http://purl.org/dc/elements/1.1/';
-use constant NS_TYPEPAD => 'http://sixapart.com/atom/typepad#';
+sub NS_APP     { 'http://www.w3.org/2007/app' };
+sub NS_DC      { 'http://purl.org/dc/elements/1.1/' };
+sub NS_TYPEPAD {'http://sixapart.com/atom/typepad#' };
 
 sub script { $_[0]->{cfg}->AtomScript . '/1.0' }
 
@@ -402,8 +402,7 @@ sub get_posts {
     my $blog = $app->{blog};
     my %terms = (blog_id => $blog->id);
     my %arg = (sort => $app->get_posts_order_field, direction => 'descend');
-    my $Limit = 20;
-    $arg{limit} = $Limit + 1;
+    $arg{limit}  = $app->{param}{limit}  || 21;
     $arg{offset} = $app->{param}{offset} || 0;
     my $iter = MT::Entry->load_iter(\%terms, \%arg);
     my $feed = $app->new_feed();
@@ -411,17 +410,57 @@ sub get_posts {
     my $blogname = encode_text($blog->name, undef, 'utf-8');
     $feed->add_link({ rel => 'alternate', type => 'text/html',
                       href => $blog->site_url });
+    $feed->add_link({ rel => 'self', type => $app->atom_x_content_type,
+                      href => $uri });
     $feed->title($blogname);
-    $feed->add_link({ rel => 'service.post', type => 'application/x.atom+xml',
-                      href => $uri, title => $blogname });
+    # FIXME: move the line to the Legacy class
+    if ( !$feed->version || ( $feed->version < 1.0 ) ) {
+        $feed->add_link({ rel => 'service.post', type => $app->atom_x_content_type,
+                          href => $uri, title => $blogname });
+    }
+    require URI;
+    my $site_uri = URI->new($blog->site_url);
+    if ( $site_uri ) {
+        my $blog_created = format_ts('%Y-%m-%d', $blog->created_on, $blog, 'en', 0);
+        my $id = 'tag:'.$site_uri->host.','.$blog_created.':'.$site_uri->path.'/'.$blog->id;
+        $feed->id($id);
+    }
+    my $latest_date = 0;
     $uri .= '/entry_id=';
+    my @entries;
     while (my $entry = $iter->()) {
         my $e = $app->new_with_entry($entry);
-        $e->add_link({ rel => $app->edit_link_rel, type => $app->atom_x_content_type,
-                       href => ($uri . $entry->id), title => encode_text($entry->title, undef,'utf-8') });
-        $feed->add_entry($e);
+        $e->add_link({ rel   => $app->edit_link_rel,
+                       type  => $app->atom_x_content_type,
+                       href  => ($uri . $entry->id),
+                       title => encode_text($entry->title, undef,'utf-8')
+        });
+        my $replies = XML::Atom::Link->new(Version => $feed->version);
+        $replies->rel('replies');
+        $replies->type($app->atom_x_content_type);
+        $replies->href($app->base
+               . $app->app_path
+               . $app->config->AtomScript
+               . '/comments/blog_id=' . $blog->id
+               . '/entry_id=' . $entry->id
+        );
+        require XML::Atom;
+        my $ns = XML::Atom::Namespace->new(thr => 'http://purl.org/syndication/thread/1.0');
+        $replies->set($ns, 'count', $entry->comment_count);
+        $e->add_link($replies);
+
+        # feed/updated should be added before entries
+        # so we postpone adding them until later
+        push @entries, $e;
+        my $date = $entry->modified_on || $entry->authored_on;
+        if ( $latest_date < $date ) {
+            $latest_date = $date;
+            $feed->updated( $e->updated );
+        }
     }
+    $feed->add_entry($_) foreach @entries;
     ## xxx add next/prev links
+    $app->run_callbacks( 'get_posts', $feed, $blog );
     $app->response_content_type($app->atom_content_type);
     $feed->as_xml;
 }
@@ -439,8 +478,26 @@ sub get_post {
     my $atom = $app->new_with_entry($entry);
     my $uri = $app->base . $app->uri . '/blog_id=' . $blog->id;
     $uri .= '/entry_id=';
-    $atom->add_link({ rel => $app->edit_link_rel, type => $app->atom_x_content_type,
-                      href => ($uri . $entry->id), title => encode_text($entry->title, undef,'utf-8') });
+    $atom->add_link({ rel   => $app->edit_link_rel,
+                      type  => $app->atom_x_content_type,
+                      href  => ($uri . $entry->id),
+                      title => encode_text($entry->title, undef,'utf-8')
+    });
+    my $replies = XML::Atom::Link->new(Version => $atom->version);
+    $replies->rel('replies');
+    $replies->type($app->atom_x_content_type);
+    $replies->href($app->base
+           . $app->app_path
+           . $app->config->AtomScript
+           . '/comments/blog_id=' . $blog->id
+           . '/entry_id=' . $entry->id
+    );
+    require XML::Atom;
+    my $ns = XML::Atom::Namespace->new(thr => 'http://purl.org/syndication/thread/1.0');
+    $replies->set($ns, 'count', $entry->comment_count);
+    $atom->add_link($replies);
+    $app->run_callbacks( 'get_post', $atom, $entry );
+    $app->response_content_type($app->atom_content_type);
     $atom->as_xml;
 }
 

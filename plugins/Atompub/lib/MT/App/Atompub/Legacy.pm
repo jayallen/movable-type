@@ -12,7 +12,6 @@ use base qw( MT::App::Atompub::Weblog );
 use MT::I18N qw( encode_text );
 use XML::Atom;  # for LIBXML
 use XML::Atom::Feed;
-use base qw( MT::AtomServer );
 use MT::Blog;
 use MT::Permission;
 

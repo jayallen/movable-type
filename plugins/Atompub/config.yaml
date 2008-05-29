@@ -14,3 +14,7 @@ applications:
             class: MT::App::Atompub::Legacy
             auth:
                 - MT::Auth::WSSE
+        comments:
+            class: MT::App::Atompub::Comments
+            auth:
+                - MT::Auth::WSSE
